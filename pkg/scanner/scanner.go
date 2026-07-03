@@ -4,39 +4,42 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/iam"
+	"github.com/aws/aws-sdk-go/service/s3"
+
 	"github.com/natedadson/cloud-security-scanner/internal/config"
 	"github.com/natedadson/cloud-security-scanner/pkg/aws"
 )
 
 type Finding struct {
-	ResourceType string   `json:"resource_type"`
-	ResourceName string   `json:"resource_name"`
-	Severity     string   `json:"severity"` // CRITICAL, HIGH, MEDIUM, LOW, INFO
-	Issue        string   `json:"issue"`
-	Remediation  string   `json:"remediation"`
+	ResourceType string                 `json:"resource_type"`
+	ResourceName string                 `json:"resource_name"`
+	Severity     string                 `json:"severity"`
+	Issue        string                 `json:"issue"`
+	Remediation  string                 `json:"remediation"`
 	Details      map[string]interface{} `json:"details,omitempty"`
 }
 
 type ScanResult struct {
-	AccountID   string    `json:"account_id"`
-	Region      string    `json:"region"`
-	Findings    []Finding `json:"findings"`
-	Summary     Summary   `json:"summary"`
+	AccountID string    `json:"account_id"`
+	Region    string    `json:"region"`
+	Findings  []Finding `json:"findings"`
+	Summary   Summary   `json:"summary"`
 }
 
 type Summary struct {
-	TotalFindings   int `json:"total_findings"`
-	CriticalCount   int `json:"critical_count"`
-	HighCount       int `json:"high_count"`
-	MediumCount     int `json:"medium_count"`
-	LowCount        int `json:"low_count"`
-	InfoCount       int `json:"info_count"`
+	TotalFindings int `json:"total_findings"`
+	CriticalCount int `json:"critical_count"`
+	HighCount     int `json:"high_count"`
+	MediumCount   int `json:"medium_count"`
+	LowCount      int `json:"low_count"`
+	InfoCount     int `json:"info_count"`
 }
 
 type Scanner struct {
 	Session *aws.Session
 	Config  config.Config
-	mu      sync.Mutex
 }
 
 func NewScanner(session *aws.Session, cfg config.Config) *Scanner {
@@ -85,11 +88,10 @@ func (s *Scanner) Scan() (*ScanResult, error) {
 
 	wg.Wait()
 
-	// Generate summary
 	summary := s.generateSummary(allFindings)
 
 	return &ScanResult{
-		AccountID: "622411523600", // Your AWS account ID
+		AccountID: "622411523600",
 		Region:    s.Config.Region,
 		Findings:  allFindings,
 		Summary:   summary,
@@ -100,21 +102,17 @@ func (s *Scanner) scanIAM() []Finding {
 	fmt.Println("  📋 Scanning IAM...")
 	var findings []Finding
 
-	// List roles (similar to your Python tool)
-	input := &aws.iam.ListRolesInput{}
-	err := s.Session.IAM.ListRolesPages(input, func(page *aws.iam.ListRolesOutput, lastPage bool) bool {
+	input := &iam.ListRolesInput{}
+	err := s.Session.IAM.ListRolesPages(input, func(page *iam.ListRolesOutput, lastPage bool) bool {
 		for _, role := range page.Roles {
-			// Check for service accounts
-			if role.Path != nil && len(*role.Path) > 0 {
-				finding := Finding{
-					ResourceType: "IAM Role",
-					ResourceName: *role.RoleName,
-					Severity:     "INFO",
-					Issue:        "Service account found",
-					Remediation:  "Review if still needed",
-				}
-				findings = append(findings, finding)
+			finding := Finding{
+				ResourceType: "IAM Role",
+				ResourceName: *role.RoleName,
+				Severity:     "INFO",
+				Issue:        "Service account found - review if still needed",
+				Remediation:  "Check last used date and remove if unused",
 			}
+			findings = append(findings, finding)
 		}
 		return !lastPage
 	})
@@ -123,7 +121,7 @@ func (s *Scanner) scanIAM() []Finding {
 		fmt.Printf("    ⚠️ IAM scan error: %v\n", err)
 	}
 
-	fmt.Printf("    ✓ Found %d IAM issues\n", len(findings))
+	fmt.Printf("    ✓ Found %d IAM roles\n", len(findings))
 	return findings
 }
 
@@ -131,8 +129,7 @@ func (s *Scanner) scanS3() []Finding {
 	fmt.Println("  📋 Scanning S3...")
 	var findings []Finding
 
-	// List S3 buckets
-	input := &aws.s3.ListBucketsInput{}
+	input := &s3.ListBucketsInput{}
 	output, err := s.Session.S3.ListBuckets(input)
 	if err != nil {
 		fmt.Printf("    ⚠️ S3 scan error: %v\n", err)
@@ -140,18 +137,17 @@ func (s *Scanner) scanS3() []Finding {
 	}
 
 	for _, bucket := range output.Buckets {
-		// Check if bucket is public (simplified)
 		finding := Finding{
 			ResourceType: "S3 Bucket",
 			ResourceName: *bucket.Name,
 			Severity:     "MEDIUM",
 			Issue:        "Bucket should be reviewed for public access",
-			Remediation:  "Check bucket policy and ACLs",
+			Remediation:  "Check bucket policy, ACLs, and block public access settings",
 		}
 		findings = append(findings, finding)
 	}
 
-	fmt.Printf("    ✓ Found %d S3 issues\n", len(findings))
+	fmt.Printf("    ✓ Found %d S3 buckets\n", len(findings))
 	return findings
 }
 
@@ -159,12 +155,10 @@ func (s *Scanner) scanEC2() []Finding {
 	fmt.Println("  📋 Scanning EC2...")
 	var findings []Finding
 
-	// Describe EC2 instances
-	input := &aws.ec2.DescribeInstancesInput{}
-	err := s.Session.EC2.DescribeInstancesPages(input, func(page *aws.ec2.DescribeInstancesOutput, lastPage bool) bool {
+	input := &ec2.DescribeInstancesInput{}
+	err := s.Session.EC2.DescribeInstancesPages(input, func(page *ec2.DescribeInstancesOutput, lastPage bool) bool {
 		for _, reservation := range page.Reservations {
 			for _, instance := range reservation.Instances {
-				// Check if instance has public IP
 				if instance.PublicIpAddress != nil {
 					finding := Finding{
 						ResourceType: "EC2 Instance",
@@ -188,7 +182,7 @@ func (s *Scanner) scanEC2() []Finding {
 		fmt.Printf("    ⚠️ EC2 scan error: %v\n", err)
 	}
 
-	fmt.Printf("    ✓ Found %d EC2 issues\n", len(findings))
+	fmt.Printf("    ✓ Found %d EC2 instances with public IPs\n", len(findings))
 	return findings
 }
 

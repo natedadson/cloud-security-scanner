@@ -1,0 +1,28 @@
+{
+  "account_id": "622411523600",
+  "region": "us-east-1",
+  "findings": [
+    {
+      "resource_type": "IAM Role",
+      "resource_name": "AWSServiceRoleForSupport",
+      "severity": "INFO",
+      "issue": "Service account found - review if still needed",
+      "remediation": "Check last used date and remove if unused"
+    },
+    {
+      "resource_type": "IAM Role",
+      "resource_name": "AWSServiceRoleForTrustedAdvisor",
+      "severity": "INFO",
+      "issue": "Service account found - review if still needed",
+      "remediation": "Check last used date and remove if unused"
+    }
+  ],
+  "summary": {
+    "total_findings": 2,
+    "critical_count": 0,
+    "high_count": 0,
+    "medium_count": 0,
+    "low_count": 0,
+    "info_count": 2
+  }
+}
